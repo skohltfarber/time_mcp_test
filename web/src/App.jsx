@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "react";
 
 const API = import.meta.env.VITE_API_URL || "";
 const WORLD_CLOCK = "https://worldclock.pro/mcp";
+const CLOCK_PROXY = import.meta.env.VITE_CLOCK_PROXY || "";
 const SAMPLE_WINDOW = { start: "04:00", end: "00:00" };
+const CORS_ERROR = "Access to fetch at 'https://worldclock.pro/mcp' from origin 'https://skohltfarber.github.io' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.";
 
 const PLACES = [
   { city: "London", timezone: "Europe/London" },
@@ -65,27 +67,50 @@ function decisionLine({ city, time12, abbreviation, isDST, gmt, open, lockedUnti
   return `${when}. Do not execute the service call. Locked out until ${lockedUntil} local.`;
 }
 
-async function readWindow() {
-  const response = await fetch(`${API}/window`);
+function placesByZone(payload, timezones) {
+  const places = JSON.parse(payload.result.content[0].text);
+  const byZone = new Map(places.map((place) => [place.timezone, place]));
+  const missing = timezones.filter((timezone) => !byZone.has(timezone));
+  if (missing.length) throw new Error(`World Clock Pro did not return ${missing.join(", ")}.`);
+  return byZone;
+}
+
+async function postJson(url, body) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+    },
+    body: JSON.stringify(body),
+  });
   const text = await response.text();
   if (!response.ok) throw new Error(text || `HTTP ${response.status}`);
   return JSON.parse(text);
 }
 
 async function readZones(timezones) {
-  const response = await fetch(`${API}/tools/get_current_time`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ locations: timezones.map((timezone) => ({ timezone })) }),
-  });
-  const text = await response.text();
-  if (!response.ok) throw new Error(text || `HTTP ${response.status}`);
-  const payload = JSON.parse(text);
-  const places = JSON.parse(payload.result.content[0].text);
-  const byZone = new Map(places.map((place) => [place.timezone, place]));
-  const missing = timezones.filter((timezone) => !byZone.has(timezone));
-  if (missing.length) throw new Error(`World Clock Pro did not return ${missing.join(", ")}.`);
-  return byZone;
+  const locations = timezones.map((timezone) => ({ timezone }));
+  if (API) {
+    const payload = await postJson(`${API}/tools/get_current_time`, { locations });
+    return placesByZone(payload, timezones);
+  }
+  const request = {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "tools/call",
+    params: { name: "get_current_time", arguments: { locations } },
+  };
+  try {
+    return placesByZone(await postJson(WORLD_CLOCK, request), timezones);
+  } catch (caught) {
+    if (!CLOCK_PROXY) throw new Error(CORS_ERROR);
+    try {
+      return placesByZone(await postJson(CLOCK_PROXY, request), timezones);
+    } catch {
+      throw new Error(`${CORS_ERROR} (${caught.message})`);
+    }
+  }
 }
 
 function describe(city, place, settings) {
@@ -111,19 +136,19 @@ function describe(city, place, settings) {
 }
 
 function checkZones(entries) {
-  return Promise.all([readWindow(), readZones(entries.map((entry) => entry.timezone))]).then(([settings, byZone]) => {
-    const lines = entries.map((entry) => describe(entry.city, byZone.get(entry.timezone), settings));
-    return { settings, lines };
+  return readZones(entries.map((entry) => entry.timezone)).then((byZone) => {
+    const lines = entries.map((entry) => describe(entry.city, byZone.get(entry.timezone), SAMPLE_WINDOW));
+    return { settings: SAMPLE_WINDOW, lines };
   });
 }
 
 export default function App() {
   const [timezone, setTimezone] = useState("America/New_York");
-  const [settings, setSettings] = useState(API ? null : SAMPLE_WINDOW);
+  const [settings, setSettings] = useState(SAMPLE_WINDOW);
   const [focus, setFocus] = useState(null);
   const [log, setLog] = useState([]);
   const [error, setError] = useState("");
-  const [checking, setChecking] = useState(Boolean(API));
+  const [checking, setChecking] = useState(true);
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
 
@@ -142,7 +167,6 @@ export default function App() {
   }
 
   async function checkSelected() {
-    if (!API) return;
     const entry = PLACES.find((place) => place.timezone === timezone);
     setChecking(true);
     setError("");
@@ -168,7 +192,6 @@ export default function App() {
   }
 
   async function checkAll() {
-    if (!API) return;
     setChecking(true);
     setError("");
     showToast({
@@ -194,7 +217,6 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (!API) return undefined;
     let active = true;
     const entry = PLACES.find((place) => place.timezone === "America/New_York");
     if (!inflight) inflight = checkZones([entry]);
@@ -233,13 +255,8 @@ export default function App() {
         <p>
           Each check is one World Clock Pro lookup at{" "}
           <a href={WORLD_CLOCK}>{WORLD_CLOCK}</a>
-          {" "}for the city’s IANA zone. The local API only forwards that call. City names are not searched.
+          {" "}for the city’s IANA zone. City names are not searched. This page does not call localhost.
         </p>
-        {API ? null : (
-          <p>
-            The lockout check needs a published API. This static site does not call localhost. Set <code>VITE_API_URL</code> to that API when you build the page.
-          </p>
-        )}
       </header>
 
       <section>
@@ -248,13 +265,9 @@ export default function App() {
           Open from 4:00 AM inclusive until midnight exclusive in the city’s local time. Before 4:00 AM the call is locked out.
         </p>
         <p>The start and end come from the sample settings (the JSON stand-in).</p>
-        {settings ? (
-          <p className="window-values">
-            Current window: <strong>{settings.start}</strong> to <strong>{settings.end}</strong>
-          </p>
-        ) : (
-          <p className="window-values">Reading the sample settings…</p>
-        )}
+        <p className="window-values">
+          Current window: <strong>{settings.start}</strong> to <strong>{settings.end}</strong>
+        </p>
       </section>
 
       <section className="primary-panel">
@@ -268,10 +281,10 @@ export default function App() {
           ))}
         </select>
         <div className="row">
-          <button className="primary" onClick={checkSelected} disabled={checking || !API}>
+          <button className="primary" onClick={checkSelected} disabled={checking}>
             {checking ? "Checking…" : "Check this city"}
           </button>
-          <button className="secondary" onClick={checkAll} disabled={checking || !API}>
+          <button className="secondary" onClick={checkAll} disabled={checking}>
             Check all cities
           </button>
         </div>
@@ -306,7 +319,7 @@ export default function App() {
           <span className="service">World Clock Pro</span>
         </div>
         <p>One line per city. The newest check is at the top. Each line tells backend folks whether to execute the service call.</p>
-        {log.length === 0 ? <p className="quiet">{checking ? "Waiting for the first check." : "No checks yet."}</p> : null}
+        {log.length === 0 && checking ? <p className="quiet">Waiting for the first check.</p> : null}
         <ul className="log">
           {log.map((entry) => (
             <li key={entry.key} className={entry.open ? "ok" : "err"}>{entry.text}</li>
