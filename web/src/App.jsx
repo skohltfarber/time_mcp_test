@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-const API = "http://localhost:5080";
+const API = import.meta.env.VITE_API_URL || "";
 const WORLD_CLOCK = "https://worldclock.pro/mcp";
 
 const PLACES = [
@@ -122,7 +122,7 @@ export default function App() {
   const [focus, setFocus] = useState(null);
   const [log, setLog] = useState([]);
   const [error, setError] = useState("");
-  const [checking, setChecking] = useState(true);
+  const [checking, setChecking] = useState(Boolean(API));
 
   function remember(nextSettings, lines, selectedTimezone) {
     setSettings(nextSettings);
@@ -131,6 +131,7 @@ export default function App() {
   }
 
   async function checkSelected() {
+    if (!API) return;
     const entry = PLACES.find((place) => place.timezone === timezone);
     setChecking(true);
     setError("");
@@ -145,6 +146,7 @@ export default function App() {
   }
 
   async function checkAll() {
+    if (!API) return;
     setChecking(true);
     setError("");
     try {
@@ -158,6 +160,7 @@ export default function App() {
   }
 
   useEffect(() => {
+    if (!API) return undefined;
     let active = true;
     const entry = PLACES.find((place) => place.timezone === "America/New_York");
     if (!inflight) inflight = checkZones([entry]);
@@ -191,8 +194,13 @@ export default function App() {
         <p>
           Each check is one World Clock Pro lookup at{" "}
           <a href={WORLD_CLOCK}>{WORLD_CLOCK}</a>
-          {" "}for the city’s IANA zone. The local API on port 5080 only forwards that call. City names are not searched.
+          {" "}for the city’s IANA zone. The local API only forwards that call. City names are not searched.
         </p>
+        {API ? null : (
+          <p>
+            The lockout check needs a published API. This static site does not call localhost. Set <code>VITE_API_URL</code> to that API when you build the page.
+          </p>
+        )}
       </header>
 
       <section>
@@ -221,10 +229,10 @@ export default function App() {
           ))}
         </select>
         <div className="row">
-          <button className="primary" onClick={checkSelected} disabled={checking}>
+          <button className="primary" onClick={checkSelected} disabled={checking || !API}>
             {checking ? "Checking…" : "Check this city"}
           </button>
-          <button className="secondary" onClick={checkAll} disabled={checking}>
+          <button className="secondary" onClick={checkAll} disabled={checking || !API}>
             Check all cities
           </button>
         </div>
