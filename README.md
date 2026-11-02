@@ -50,9 +50,11 @@ From the parent directory, `cd time_mcp_test`. Create a GitHub repository and pu
 
 The site is the Vite app in `web/` plus the API.
 
-https://skohltfarber.github.io/time_mcp_test/ serves the page. `pages.yml` builds `web/` with Vite base `/time_mcp_test/` and deploys `web/dist` to GitHub Pages on each push to `main`. Pages does not run the API. The lockout check needs a published API.
+The published page is the Vite build in `docs/`, with base `/time_mcp_test/`. Pages does not run the API. The lockout check needs a published API.
 
-The Pages build does not call `http://localhost:5080`. It uses `VITE_API_URL` when that variable is set at build time, and otherwise leaves the API URL empty. Local `npm run dev` still uses `http://localhost:5080` from `web/.env.development`. Set `VITE_API_URL` to the published API and rebuild before the public page can run the check.
+Settings → Pages → Deploy from a branch → main → /docs → Save, then the site is https://skohltfarber.github.io/time_mcp_test/.
+
+The static build does not call `http://localhost:5080` unless `VITE_API_URL` is set when the site is built. Local `npm run dev` still uses `http://localhost:5080` from `web/.env.development`. Set `VITE_API_URL` to the published API and rebuild `docs/` before the public page can run the check.
 
 To publish the API as well, add a workflow that builds the images in `docker/api.Dockerfile` and `docker/web.Dockerfile`, pushes them to GitHub Container Registry, and runs them on a host you control.
 
