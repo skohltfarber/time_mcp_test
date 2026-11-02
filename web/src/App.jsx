@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 const API = import.meta.env.VITE_API_URL || "";
 const WORLD_CLOCK = "https://worldclock.pro/mcp";
+const SAMPLE_WINDOW = { start: "04:00", end: "00:00" };
 
 const PLACES = [
   { city: "London", timezone: "Europe/London" },
@@ -118,7 +119,7 @@ function checkZones(entries) {
 
 export default function App() {
   const [timezone, setTimezone] = useState("America/New_York");
-  const [settings, setSettings] = useState(null);
+  const [settings, setSettings] = useState(API ? null : SAMPLE_WINDOW);
   const [focus, setFocus] = useState(null);
   const [log, setLog] = useState([]);
   const [error, setError] = useState("");
@@ -252,7 +253,7 @@ export default function App() {
             Current window: <strong>{settings.start}</strong> to <strong>{settings.end}</strong>
           </p>
         ) : (
-          <p className="window-values">{checking ? "Reading the sample settings…" : "Sample settings are not loaded yet."}</p>
+          <p className="window-values">Reading the sample settings…</p>
         )}
       </section>
 
