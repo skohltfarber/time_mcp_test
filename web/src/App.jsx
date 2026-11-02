@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const API = import.meta.env.VITE_API_URL || "";
 const WORLD_CLOCK = "https://worldclock.pro/mcp";
@@ -123,11 +123,21 @@ export default function App() {
   const [log, setLog] = useState([]);
   const [error, setError] = useState("");
   const [checking, setChecking] = useState(Boolean(API));
+  const [toast, setToast] = useState(null);
+  const toastTimer = useRef(null);
+
+  function showToast(next) {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast({ ...next, id: Date.now() });
+    toastTimer.current = setTimeout(() => setToast(null), 8000);
+  }
 
   function remember(nextSettings, lines, selectedTimezone) {
     setSettings(nextSettings);
     setLog((current) => [...lines, ...current]);
-    setFocus(lines.find((line) => line.timezone === selectedTimezone) || lines[0]);
+    const focusLine = lines.find((line) => line.timezone === selectedTimezone) || lines[0];
+    setFocus(focusLine);
+    return focusLine;
   }
 
   async function checkSelected() {
@@ -135,11 +145,22 @@ export default function App() {
     const entry = PLACES.find((place) => place.timezone === timezone);
     setChecking(true);
     setError("");
+    showToast({
+      tone: "pending",
+      title: "Testing local time",
+      message: `Looking up ${entry.city} on World Clock Pro.`,
+    });
     try {
       const { settings: nextSettings, lines } = await checkZones([entry]);
-      remember(nextSettings, lines, entry.timezone);
+      const focusLine = remember(nextSettings, lines, entry.timezone);
+      showToast({
+        tone: focusLine.open ? "execute" : "locked",
+        title: focusLine.open ? "Execute the service call" : "Do not execute the service call",
+        message: focusLine.text,
+      });
     } catch (caught) {
       setError(caught.message);
+      showToast({ tone: "locked", title: "Time check failed", message: caught.message });
     } finally {
       setChecking(false);
     }
@@ -149,11 +170,23 @@ export default function App() {
     if (!API) return;
     setChecking(true);
     setError("");
+    showToast({
+      tone: "pending",
+      title: "Testing local time",
+      message: "Looking up every city on World Clock Pro.",
+    });
     try {
       const { settings: nextSettings, lines } = await checkZones(PLACES);
       remember(nextSettings, lines, timezone);
+      const allowed = lines.filter((line) => line.open).length;
+      showToast({
+        tone: allowed === lines.length ? "execute" : allowed === 0 ? "locked" : "pending",
+        title: "Time check finished",
+        message: `${lines.length} cities. Execute the service call at ${allowed}. Do not execute at ${lines.length - allowed}.`,
+      });
     } catch (caught) {
       setError(caught.message);
+      showToast({ tone: "locked", title: "Time check failed", message: caught.message });
     } finally {
       setChecking(false);
     }
@@ -170,6 +203,11 @@ export default function App() {
         setSettings(nextSettings);
         setLog((current) => [...lines, ...current]);
         setFocus(lines[0]);
+        showToast({
+          tone: lines[0].open ? "execute" : "locked",
+          title: lines[0].open ? "Execute the service call" : "Do not execute the service call",
+          message: lines[0].text,
+        });
       })
       .catch((caught) => {
         if (active) setError(caught.message);
@@ -274,6 +312,16 @@ export default function App() {
           ))}
         </ul>
       </section>
+
+      {toast ? (
+        <div key={toast.id} className={`toast toast-${toast.tone}`} role="status" aria-live="polite">
+          <div>
+            <p className="toast-title">{toast.title}</p>
+            <p className="toast-message">{toast.message}</p>
+          </div>
+          <button type="button" className="toast-close" onClick={() => setToast(null)}>Close</button>
+        </div>
+      ) : null}
 
       <footer className="stream">
         <span className="service">World Clock Pro</span>
